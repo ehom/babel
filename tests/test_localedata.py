@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright (C) 2007-2011 Edgewall Software
+# Copyright (C) 2007-2011 Edgewall Software, 2013-2020 the Babel team
 # All rights reserved.
 #
-# This software is licensed as described in the file COPYING, which
+# This software is licensed as described in the file LICENSE, which
 # you should have received as part of this distribution. The terms
 # are also available at http://babel.edgewall.org/wiki/License.
 #
@@ -94,3 +94,40 @@ def test_mixedcased_locale():
         locale_id = ''.join([
             methodcaller(random.choice(['lower', 'upper']))(c) for c in l])
         assert localedata.exists(locale_id)
+
+
+def test_locale_argument_acceptance():
+    # Testing None input.
+    normalized_locale = localedata.normalize_locale(None)
+    assert normalized_locale is None
+    locale_exist = localedata.exists(None)
+    assert locale_exist == False
+
+    # # Testing list input.
+    normalized_locale = localedata.normalize_locale(['en_us', None])
+    assert normalized_locale is None
+    locale_exist = localedata.exists(['en_us', None])
+    assert locale_exist == False
+
+
+def test_locale_identifiers_cache(monkeypatch):
+    original_listdir = localedata.os.listdir
+    listdir_calls = []
+    def listdir_spy(*args):
+        rv = original_listdir(*args)
+        listdir_calls.append((args, rv))
+        return rv
+    monkeypatch.setattr(localedata.os, 'listdir', listdir_spy)
+
+    # In case we've already run some tests...
+    if hasattr(localedata.locale_identifiers, 'cache'):
+        del localedata.locale_identifiers.cache
+
+    assert not listdir_calls
+    assert localedata.locale_identifiers()
+    assert len(listdir_calls) == 1
+    assert localedata.locale_identifiers() is localedata.locale_identifiers.cache
+    assert len(listdir_calls) == 1
+    localedata.locale_identifiers.cache = None
+    assert localedata.locale_identifiers()
+    assert len(listdir_calls) == 2

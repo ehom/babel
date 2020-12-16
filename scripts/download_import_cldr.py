@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import contextlib
 import os
@@ -13,9 +13,9 @@ except ImportError:
     from urllib import urlretrieve
 
 
-URL = 'http://unicode.org/Public/cldr/29/core.zip'
-FILENAME = 'core-29.zip'
-FILESUM = '44d117e6e591a8f9655602ff0abdee105df3cabe'
+URL = 'http://unicode.org/Public/cldr/37/core.zip'
+FILENAME = 'cldr-core-37.zip'
+FILESUM = 'ba93f5ba256a61a6f8253397c6c4b1a9b9e77531f013cc7ffa7977b5f7e4da57'
 BLKSIZE = 131072
 
 
@@ -53,7 +53,7 @@ def is_good_file(filename):
     if not os.path.isfile(filename):
         log('Local copy \'%s\' not found', filename)
         return False
-    h = hashlib.sha1()
+    h = hashlib.sha256()
     with open(filename, 'rb') as f:
         while 1:
             blk = f.read(BLKSIZE)
@@ -75,14 +75,15 @@ def main():
     cldr_path = os.path.join(repo, 'cldr', os.path.splitext(FILENAME)[0])
     zip_path = os.path.join(cldr_dl_path, FILENAME)
     changed = False
+    show_progress = (False if os.environ.get("BABEL_CLDR_NO_DOWNLOAD_PROGRESS") else sys.stdout.isatty())
 
     while not is_good_file(zip_path):
         log('Downloading \'%s\'', FILENAME)
         if os.path.isfile(zip_path):
             os.remove(zip_path)
-        urlretrieve(URL, zip_path, reporthook)
+        urlretrieve(URL, zip_path, (reporthook if show_progress else None))
         changed = True
-        print
+        print()
     common_path = os.path.join(cldr_path, 'common')
 
     if changed or not os.path.isdir(common_path):

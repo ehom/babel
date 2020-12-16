@@ -47,7 +47,7 @@ The syntax for custom number format patterns is described in detail in the
 the specification. The following table is just a relatively brief overview.
 
  .. _`Locale Data Markup Language specification`:
-    http://unicode.org/reports/tr35/#Number_Format_Patterns
+    https://unicode.org/reports/tr35/#Number_Format_Patterns
 
   +----------+-----------------------------------------------------------------+
   | Symbol   | Description                                                     |
@@ -134,8 +134,8 @@ behaves as desired.
 
 .. _Decimal: https://docs.python.org/3/library/decimal.html#decimal-objects
 .. _Context: https://docs.python.org/3/library/decimal.html#context-objects
-.. _`UTS #35 section 3.3`: http://www.unicode.org/reports/tr35/tr35-numbers.html#Formatting
-.. _cdecimal: https://pypi.python.org/pypi/cdecimal
+.. _`UTS #35 section 3.3`: https://www.unicode.org/reports/tr35/tr35-numbers.html#Formatting
+.. _cdecimal: https://pypi.org/project/cdecimal/
 
 
 Parsing Numbers
@@ -160,4 +160,21 @@ Examples:
       ...
     NumberFormatError: '2,109,998' is not a valid decimal number
 
-.. note:: Number parsing is not properly implemented yet
+Note: as of version 2.8.0, the ``parse_number`` function has limited
+functionality. It can remove group symbols of certain locales from numeric
+strings, but may behave unexpectedly until its logic handles more encoding
+issues and other special cases.
+
+Examples:
+
+.. code-block:: pycon
+
+    >>> parse_number('1,099', locale='en_US')
+    1099
+    >>> parse_number('1.099.024', locale='de')
+    1099024
+    >>> parse_number('123' + u'\xa0' + '4567', locale='ru')
+    1234567
+    >>> parse_number('123 4567', locale='ru')
+      ...
+    NumberFormatError: '123 4567' is not a valid number

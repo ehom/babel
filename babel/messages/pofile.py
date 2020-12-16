@@ -6,7 +6,7 @@
     Reading and writing of files in the ``gettext`` PO (portable object)
     format.
 
-    :copyright: (c) 2013 by the Babel Team.
+    :copyright: (c) 2013-2020 by the Babel Team.
     :license: BSD, see LICENSE for more details.
 """
 
@@ -16,7 +16,7 @@ import re
 
 from babel.messages.catalog import Catalog, Message
 from babel.util import wraptext
-from babel._compat import text_type
+from babel._compat import text_type, cmp
 
 
 def unescape(string):
@@ -73,6 +73,15 @@ def denormalize(string):
         return unescape(string)
 
 
+class PoFileError(Exception):
+    """Exception thrown by PoParser when an invalid po file is encountered."""
+    def __init__(self, message, catalog, line, lineno):
+        super(PoFileError, self).__init__('{message} on {lineno}'.format(message=message, lineno=lineno))
+        self.catalog = catalog
+        self.line = line
+        self.lineno = lineno
+
+
 class _NormalizedString(object):
 
     def __init__(self, *args):
@@ -89,6 +98,36 @@ class _NormalizedString(object):
     def __nonzero__(self):
         return bool(self._strs)
 
+    __bool__ = __nonzero__
+
+    def __repr__(self):
+        return os.linesep.join(self._strs)
+
+    def __cmp__(self, other):
+        if not other:
+            return 1
+
+        return cmp(text_type(self), text_type(other))
+
+    def __gt__(self, other):
+        return self.__cmp__(other) > 0
+
+    def __lt__(self, other):
+        return self.__cmp__(other) < 0
+
+    def __ge__(self, other):
+        return self.__cmp__(other) >= 0
+
+    def __le__(self, other):
+        return self.__cmp__(other) <= 0
+
+    def __eq__(self, other):
+        return self.__cmp__(other) == 0
+
+    def __ne__(self, other):
+        return self.__cmp__(other) != 0
+
+
 
 class PoFileParser(object):
     """Support class to  read messages from a ``gettext`` PO (portable object) file
@@ -104,11 +143,12 @@ class PoFileParser(object):
         'msgid_plural',
     ]
 
-    def __init__(self, catalog, ignore_obsolete=False):
+    def __init__(self, catalog, ignore_obsolete=False, abort_invalid=False):
         self.catalog = catalog
         self.ignore_obsolete = ignore_obsolete
         self.counter = 0
         self.offset = 0
+        self.abort_invalid = abort_invalid
         self._reset_message_state()
 
     def _reset_message_state(self):
@@ -138,7 +178,7 @@ class PoFileParser(object):
             string = ['' for _ in range(self.catalog.num_plurals)]
             for idx, translation in self.translations:
                 if idx >= self.catalog.num_plurals:
-                    self._invalid_pofile("", self.offset, "msg has more translations than num_plurals of catalog")
+                    self._invalid_pofile(u"", self.offset, "msg has more translations than num_plurals of catalog")
                     continue
                 string[idx] = translation.denormalize()
             string = tuple(string)
@@ -172,9 +212,12 @@ class PoFileParser(object):
     def _process_keyword_line(self, lineno, line, obsolete=False):
 
         for keyword in self._keywords:
-            if line.startswith(keyword) and line[len(keyword)] in [' ', '[']:
-                arg = line[len(keyword):]
-                break
+            try:
+                if line.startswith(keyword) and line[len(keyword)] in [' ', '[']:
+                    arg = line[len(keyword):]
+                    break
+            except IndexError:
+                self._invalid_pofile(line, lineno, "Keyword must be followed by a string")
         else:
             self._invalid_pofile(line, lineno, "Start of line didn't match any expected keyword.")
             return
@@ -276,11 +319,17 @@ class PoFileParser(object):
             self._add_message()
 
     def _invalid_pofile(self, line, lineno, msg):
+        assert isinstance(line, text_type)
+        if self.abort_invalid:
+            raise PoFileError(msg, self.catalog, line, lineno)
         print("WARNING:", msg)
-        print("WARNING: Problem on line {0}: {1}".format(lineno + 1, line))
+        # `line` is guaranteed to be unicode so u"{}"-interpolating would always
+        # succeed, but on Python < 2 if not in a TTY, `sys.stdout.encoding`
+        # is `None`, unicode may not be printable so we `repr()` to ASCII.
+        print(u"WARNING: Problem on line {0}: {1}".format(lineno + 1, repr(line)))
 
 
-def read_po(fileobj, locale=None, domain=None, ignore_obsolete=False, charset=None):
+def read_po(fileobj, locale=None, domain=None, ignore_obsolete=False, charset=None, abort_invalid=False):
     """Read messages from a ``gettext`` PO (portable object) file from the given
     file-like object and return a `Catalog`.
 
@@ -325,9 +374,10 @@ def read_po(fileobj, locale=None, domain=None, ignore_obsolete=False, charset=No
     :param domain: the message domain
     :param ignore_obsolete: whether to ignore obsolete messages in the input
     :param charset: the character set of the catalog.
+    :param abort_invalid: abort read if po file is invalid
     """
     catalog = Catalog(locale=locale, domain=domain, charset=charset)
-    parser = PoFileParser(catalog, ignore_obsolete)
+    parser = PoFileParser(catalog, ignore_obsolete, abort_invalid=abort_invalid)
     parser.parse(fileobj)
     return catalog
 
@@ -535,7 +585,18 @@ def write_po(fileobj, catalog, width=76, no_location=False, omit_header=False,
 
         if not no_location:
             locs = []
-            for filename, lineno in sorted(message.locations):
+
+            # sort locations by filename and lineno.
+            # if there's no <int> as lineno, use `-1`.
+            # if no sorting possible, leave unsorted.
+            # (see issue #606)
+            try:
+                locations = sorted(message.locations, 
+                                   key=lambda x: (x[0], isinstance(x[1], int) and x[1] or -1))
+            except TypeError:  # e.g. "TypeError: unorderable types: NoneType() < int()"
+                locations = message.locations
+
+            for filename, lineno in locations:
                 if lineno and include_lineno:
                     locs.append(u'%s:%d' % (filename.replace(os.sep, '/'), lineno))
                 else:

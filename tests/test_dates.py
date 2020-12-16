@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright (C) 2007-2011 Edgewall Software
+# Copyright (C) 2007-2011 Edgewall Software, 2013-2020 the Babel team
 # All rights reserved.
 #
-# This software is licensed as described in the file COPYING, which
+# This software is licensed as described in the file LICENSE, which
 # you should have received as part of this distribution. The terms
 # are also available at http://babel.edgewall.org/wiki/License.
 #
@@ -15,6 +15,7 @@ import calendar
 from datetime import date, datetime, time, timedelta
 import unittest
 
+import freezegun
 import pytest
 import pytz
 from pytz import timezone
@@ -22,6 +23,23 @@ from pytz import timezone
 from babel import dates, Locale
 from babel.dates import NO_INHERITANCE_MARKER
 from babel.util import FixedOffsetTimezone
+
+
+@pytest.fixture(params=["pytz.timezone", "zoneinfo.ZoneInfo"])
+def timezone_getter(request):
+    if request.param == "pytz.timezone":
+        return timezone
+    elif request.param == "zoneinfo.ZoneInfo":
+        try:
+            import zoneinfo
+        except ImportError:
+            try:
+                from backports import zoneinfo
+            except ImportError:
+                pytest.skip("zoneinfo not available")
+        return zoneinfo.ZoneInfo
+    else:
+        raise NotImplementedError
 
 
 class DateTimeFormatTestCase(unittest.TestCase):
@@ -79,6 +97,15 @@ class DateTimeFormatTestCase(unittest.TestCase):
         fmt = dates.DateTimeFormat(d, locale='en_US')
         self.assertEqual('53', fmt['w'])
 
+    def test_week_of_year_de_first_us_last_with_year(self):
+        d = date(2018,12,31)
+        fmt = dates.DateTimeFormat(d, locale='de_DE')
+        self.assertEqual('1', fmt['w'])
+        self.assertEqual('2019', fmt['YYYY'])
+        fmt = dates.DateTimeFormat(d, locale='en_US')
+        self.assertEqual('53', fmt['w'])
+        self.assertEqual('2018',fmt['yyyy'])
+
     def test_week_of_month_first(self):
         d = date(2006, 1, 8)
         fmt = dates.DateTimeFormat(d, locale='de_DE')
@@ -134,16 +161,16 @@ class DateTimeFormatTestCase(unittest.TestCase):
         self.assertEqual('7', fmt['e'])  # monday is first day of week
         fmt = dates.DateTimeFormat(d, locale='en_US')
         self.assertEqual('01', fmt['ee'])  # sunday is first day of week
-        fmt = dates.DateTimeFormat(d, locale='bn_BD')
-        self.assertEqual('03', fmt['ee'])  # friday is first day of week
+        fmt = dates.DateTimeFormat(d, locale='ar_BH')
+        self.assertEqual('02', fmt['ee'])  # saturday is first day of week
 
         d = date(2007, 4, 2)  # a monday
         fmt = dates.DateTimeFormat(d, locale='de_DE')
         self.assertEqual('1', fmt['e'])  # monday is first day of week
         fmt = dates.DateTimeFormat(d, locale='en_US')
         self.assertEqual('02', fmt['ee'])  # sunday is first day of week
-        fmt = dates.DateTimeFormat(d, locale='bn_BD')
-        self.assertEqual('04', fmt['ee'])  # friday is first day of week
+        fmt = dates.DateTimeFormat(d, locale='ar_BH')
+        self.assertEqual('03', fmt['ee'])  # saturday is first day of week
 
     def test_local_day_of_week_standalone(self):
         d = date(2007, 4, 1)  # a sunday
@@ -151,16 +178,16 @@ class DateTimeFormatTestCase(unittest.TestCase):
         self.assertEqual('7', fmt['c'])  # monday is first day of week
         fmt = dates.DateTimeFormat(d, locale='en_US')
         self.assertEqual('1', fmt['c'])  # sunday is first day of week
-        fmt = dates.DateTimeFormat(d, locale='bn_BD')
-        self.assertEqual('3', fmt['c'])  # friday is first day of week
+        fmt = dates.DateTimeFormat(d, locale='ar_BH')
+        self.assertEqual('2', fmt['c'])  # saturday is first day of week
 
         d = date(2007, 4, 2)  # a monday
         fmt = dates.DateTimeFormat(d, locale='de_DE')
         self.assertEqual('1', fmt['c'])  # monday is first day of week
         fmt = dates.DateTimeFormat(d, locale='en_US')
         self.assertEqual('2', fmt['c'])  # sunday is first day of week
-        fmt = dates.DateTimeFormat(d, locale='bn_BD')
-        self.assertEqual('4', fmt['c'])  # friday is first day of week
+        fmt = dates.DateTimeFormat(d, locale='ar_BH')
+        self.assertEqual('3', fmt['c'])  # saturday is first day of week
 
     def test_pattern_day_of_week(self):
         dt = datetime(2016, 2, 6)
@@ -292,7 +319,7 @@ class FormatDatetimeTestCase(unittest.TestCase):
         d = datetime(2012, 4, 1, 15, 30, 29, tzinfo=timezone('UTC'))
         epoch = float(calendar.timegm(d.timetuple()))
         formatted_string = dates.format_datetime(epoch, format='long', locale='en_US')
-        self.assertEqual(u'April 1, 2012 at 3:30:29 PM +0000', formatted_string)
+        self.assertEqual(u'April 1, 2012 at 3:30:29 PM UTC', formatted_string)
 
     def test_timezone_formats(self):
         dt = datetime(2016, 1, 13, 7, 8, 35)
@@ -358,9 +385,9 @@ class FormatDatetimeTestCase(unittest.TestCase):
         formatted_string = dates.format_datetime(dt, 'OOOO', locale='en')
         self.assertEqual(u'GMT+00:00', formatted_string)
         formatted_string = dates.format_datetime(dt, 'VV', locale='en')
-        self.assertEqual(u'Etc/GMT', formatted_string)
+        self.assertEqual(u'Etc/UTC', formatted_string)
         formatted_string = dates.format_datetime(dt, 'VVV', locale='en')
-        self.assertEqual(u'GMT', formatted_string)
+        self.assertEqual(u'UTC', formatted_string)
         formatted_string = dates.format_datetime(dt, 'X', locale='en')
         self.assertEqual(u'Z', formatted_string)
         formatted_string = dates.format_datetime(dt, 'XX', locale='en')
@@ -430,7 +457,7 @@ class FormatTimeTestCase(unittest.TestCase):
         d = datetime(2012, 4, 1, 15, 30, 29, tzinfo=timezone('UTC'))
         epoch = float(calendar.timegm(d.timetuple()))
         formatted_time = dates.format_time(epoch, format='long', locale='en_US')
-        self.assertEqual(u'3:30:29 PM +0000', formatted_time)
+        self.assertEqual(u'3:30:29 PM UTC', formatted_time)
 
     def test_with_date_fields_in_pattern(self):
         self.assertRaises(AttributeError, dates.format_time, date(2007, 4, 1),
@@ -511,7 +538,7 @@ class TimeZoneAdjustTestCase(unittest.TestCase):
         utc = self._utc()
         t = datetime(2007, 4, 1, 15, 30, tzinfo=utc)
         formatted_time = dates.format_time(t, 'long', tzinfo=utc, locale='en')
-        self.assertEqual('3:30:00 PM +0000', formatted_time)
+        self.assertEqual('3:30:00 PM UTC', formatted_time)
 
 
 def test_get_period_names():
@@ -574,8 +601,8 @@ def test_get_timezone_gmt():
     assert dates.get_timezone_gmt(dt, 'long', locale='fr_FR') == u'UTC-07:00'
 
 
-def test_get_timezone_location():
-    tz = timezone('America/St_Johns')
+def test_get_timezone_location(timezone_getter):
+    tz = timezone_getter('America/St_Johns')
     assert (dates.get_timezone_location(tz, locale='de_DE') ==
             u"Kanada (St. John\u2019s) Zeit")
     assert (dates.get_timezone_location(tz, locale='en') ==
@@ -583,58 +610,90 @@ def test_get_timezone_location():
     assert (dates.get_timezone_location(tz, locale='en', return_city=True) ==
             u'St. John’s')
 
-    tz = timezone('America/Mexico_City')
+    tz = timezone_getter('America/Mexico_City')
     assert (dates.get_timezone_location(tz, locale='de_DE') ==
             u'Mexiko (Mexiko-Stadt) Zeit')
 
-    tz = timezone('Europe/Berlin')
+    tz = timezone_getter('Europe/Berlin')
     assert (dates.get_timezone_location(tz, locale='de_DE') ==
             u'Deutschland (Berlin) Zeit')
 
 
-def test_get_timezone_name():
-    dt = time(15, 30, tzinfo=timezone('America/Los_Angeles'))
-    assert (dates.get_timezone_name(dt, locale='en_US') ==
-            u'Pacific Standard Time')
-    assert (dates.get_timezone_name(dt, locale='en_US', return_zone=True) ==
-            u'America/Los_Angeles')
-    assert dates.get_timezone_name(dt, width='short', locale='en_US') == u'PST'
+@pytest.mark.parametrize(
+    "tzname, params, expected",
+    [
+        ("America/Los_Angeles", {"locale": "en_US"}, u"Pacific Time"),
+        ("America/Los_Angeles", {"width": "short", "locale": "en_US"}, u"PT"),
+        ("Europe/Berlin", {"locale": "de_DE"}, u"Mitteleurop\xe4ische Zeit"),
+        ("Europe/Berlin", {"locale": "pt_BR"}, u"Hor\xe1rio da Europa Central"),
+        ("America/St_Johns", {"locale": "de_DE"}, u"Neufundland-Zeit"),
+        (
+            "America/Los_Angeles",
+            {"locale": "en", "width": "short", "zone_variant": "generic"},
+            u"PT",
+        ),
+        (
+            "America/Los_Angeles",
+            {"locale": "en", "width": "short", "zone_variant": "standard"},
+            u"PST",
+        ),
+        (
+            "America/Los_Angeles",
+            {"locale": "en", "width": "short", "zone_variant": "daylight"},
+            u"PDT",
+        ),
+        (
+            "America/Los_Angeles",
+            {"locale": "en", "width": "long", "zone_variant": "generic"},
+            u"Pacific Time",
+        ),
+        (
+            "America/Los_Angeles",
+            {"locale": "en", "width": "long", "zone_variant": "standard"},
+            u"Pacific Standard Time",
+        ),
+        (
+            "America/Los_Angeles",
+            {"locale": "en", "width": "long", "zone_variant": "daylight"},
+            u"Pacific Daylight Time",
+        ),
+        ("Europe/Berlin", {"locale": "en_US"}, u"Central European Time"),
+    ],
+)
+def test_get_timezone_name_tzinfo(timezone_getter, tzname, params, expected):
+    tz = timezone_getter(tzname)
+    assert dates.get_timezone_name(tz, **params) == expected
 
-    tz = timezone('America/Los_Angeles')
-    assert dates.get_timezone_name(tz, locale='en_US') == u'Pacific Time'
-    assert dates.get_timezone_name(tz, 'short', locale='en_US') == u'PT'
 
-    tz = timezone('Europe/Berlin')
-    assert (dates.get_timezone_name(tz, locale='de_DE') ==
-            u'Mitteleurop\xe4ische Zeit')
-    assert (dates.get_timezone_name(tz, locale='pt_BR') ==
-            u'Hor\xe1rio da Europa Central')
+@pytest.mark.parametrize("timezone_getter", ["pytz.timezone"], indirect=True)
+@pytest.mark.parametrize(
+    "tzname, params, expected",
+    [
+        ("America/Los_Angeles", {"locale": "en_US"}, u"Pacific Standard Time"),
+        (
+            "America/Los_Angeles",
+            {"locale": "en_US", "return_zone": True},
+            u"America/Los_Angeles",
+        ),
+        ("America/Los_Angeles", {"width": "short", "locale": "en_US"}, u"PST"),
+    ],
+)
+def test_get_timezone_name_time_pytz(timezone_getter, tzname, params, expected):
+    """pytz (by design) can't determine if the time is in DST or not,
+    so it will always return Standard time"""
+    dt = time(15, 30, tzinfo=timezone_getter(tzname))
+    assert dates.get_timezone_name(dt, **params) == expected
 
-    tz = timezone('America/St_Johns')
-    assert dates.get_timezone_name(tz, locale='de_DE') == u'Neufundland-Zeit'
 
-    tz = timezone('America/Los_Angeles')
-    assert dates.get_timezone_name(tz, locale='en', width='short',
-                                   zone_variant='generic') == u'PT'
-    assert dates.get_timezone_name(tz, locale='en', width='short',
-                                   zone_variant='standard') == u'PST'
-    assert dates.get_timezone_name(tz, locale='en', width='short',
-                                   zone_variant='daylight') == u'PDT'
-    assert dates.get_timezone_name(tz, locale='en', width='long',
-                                   zone_variant='generic') == u'Pacific Time'
-    assert dates.get_timezone_name(tz, locale='en', width='long',
-                                   zone_variant='standard') == u'Pacific Standard Time'
-    assert dates.get_timezone_name(tz, locale='en', width='long',
-                                   zone_variant='daylight') == u'Pacific Daylight Time'
-
-    localnow = datetime.utcnow().replace(tzinfo=timezone('UTC')).astimezone(dates.LOCALTZ)
+def test_get_timezone_name_misc(timezone_getter):
+    localnow = datetime.utcnow().replace(tzinfo=timezone_getter('UTC')).astimezone(dates.LOCALTZ)
     assert (dates.get_timezone_name(None, locale='en_US') ==
             dates.get_timezone_name(localnow, locale='en_US'))
 
     assert (dates.get_timezone_name('Europe/Berlin', locale='en_US') == "Central European Time")
 
-    assert (dates.get_timezone_name(1400000000, locale='en_US', width='short') == "Unknown Region (GMT) Time")
-    assert (dates.get_timezone_name(time(16, 20), locale='en_US', width='short') == "+0000")
+    assert (dates.get_timezone_name(1400000000, locale='en_US', width='short') == "Unknown Region (UTC) Time")
+    assert (dates.get_timezone_name(time(16, 20), locale='en_US', width='short') == "UTC")
 
 
 def test_format_date():
@@ -751,19 +810,10 @@ def test_zh_TW_format():
     assert dates.format_time(datetime(2016, 4, 8, 12, 34, 56), locale='zh_TW') == u'\u4e0b\u534812:34:56'
 
 
-def test_format_current_moment(monkeypatch):
-    import datetime as datetime_module
+def test_format_current_moment():
     frozen_instant = datetime.utcnow()
-
-    class frozen_datetime(datetime):
-
-        @classmethod
-        def utcnow(cls):
-            return frozen_instant
-
-    # Freeze time! Well, some of it anyway.
-    monkeypatch.setattr(datetime_module, "datetime", frozen_datetime)
-    assert dates.format_datetime(locale="en_US") == dates.format_datetime(frozen_instant, locale="en_US")
+    with freezegun.freeze_time(time_to_freeze=frozen_instant):
+        assert dates.format_datetime(locale="en_US") == dates.format_datetime(frozen_instant, locale="en_US")
 
 
 @pytest.mark.all_locales
@@ -783,3 +833,16 @@ def test_no_inherit_metazone_formatting():
     assert dates.format_time(t, format='long', locale='en_GB') == "07:00:00 Pacific Standard Time"
     assert dates.get_timezone_name(t, width='short', locale='en_US') == "PST"
     assert dates.get_timezone_name(t, width='short', locale='en_GB') == "Pacific Standard Time"
+
+
+def test_russian_week_numbering():
+    # See https://github.com/python-babel/babel/issues/485
+    v = date(2017, 1, 1)
+    assert dates.format_date(v, format='YYYY-ww',locale='ru_RU') == '2016-52'  # This would have returned 2017-01 prior to CLDR 32
+    assert dates.format_date(v, format='YYYY-ww',locale='de_DE') == '2016-52'
+
+
+def test_en_gb_first_weekday():
+    assert Locale.parse('en').first_week_day == 0  # Monday in general
+    assert Locale.parse('en_US').first_week_day == 6  # Sunday in the US
+    assert Locale.parse('en_GB').first_week_day == 0  # Monday in the UK

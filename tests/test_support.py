@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright (C) 2007-2011 Edgewall Software
+# Copyright (C) 2007-2011 Edgewall Software, 2013-2020 the Babel team
 # All rights reserved.
 #
-# This software is licensed as described in the file COPYING, which
+# This software is licensed as described in the file LICENSE, which
 # you should have received as part of this distribution. The terms
 # are also available at http://babel.edgewall.org/wiki/License.
 #
@@ -17,6 +17,7 @@ import shutil
 import tempfile
 import unittest
 import pytest
+import sys
 from datetime import date, datetime, timedelta
 
 from babel import support
@@ -24,6 +25,9 @@ from babel.messages import Catalog
 from babel.messages.mofile import write_mo
 from babel._compat import BytesIO, PY2
 
+get_arg_spec = (inspect.getargspec if PY2 else inspect.getfullargspec)
+
+SKIP_LGETTEXT = sys.version_info >= (3, 8)
 
 @pytest.mark.usefixtures("os_environ")
 class TranslationsTestCase(unittest.TestCase):
@@ -74,6 +78,7 @@ class TranslationsTestCase(unittest.TestCase):
         self.assertEqualTypeToo(u'VohCTX', self.translations.upgettext('foo',
                                                                        'foo'))
 
+    @pytest.mark.skipif(SKIP_LGETTEXT, reason="lgettext is deprecated")
     def test_lpgettext(self):
         self.assertEqualTypeToo(b'Voh', self.translations.lgettext('foo'))
         self.assertEqualTypeToo(b'VohCTX', self.translations.lpgettext('foo',
@@ -103,6 +108,7 @@ class TranslationsTestCase(unittest.TestCase):
                                 self.translations.unpgettext('foo', 'foo1',
                                                              'foos1', 2))
 
+    @pytest.mark.skipif(SKIP_LGETTEXT, reason="lgettext is deprecated")
     def test_lnpgettext(self):
         self.assertEqualTypeToo(b'Voh1',
                                 self.translations.lngettext('foo1', 'foos1', 1))
@@ -127,6 +133,7 @@ class TranslationsTestCase(unittest.TestCase):
         self.assertEqualTypeToo(
             u'VohCTXD', self.translations.dupgettext('messages1', 'foo', 'foo'))
 
+    @pytest.mark.skipif(SKIP_LGETTEXT, reason="lgettext is deprecated")
     def test_ldpgettext(self):
         self.assertEqualTypeToo(
             b'VohD', self.translations.ldgettext('messages1', 'foo'))
@@ -157,6 +164,7 @@ class TranslationsTestCase(unittest.TestCase):
             u'VohsCTXD1', self.translations.dunpgettext('messages1', 'foo', 'foo1',
                                                         'foos1', 2))
 
+    @pytest.mark.skipif(SKIP_LGETTEXT, reason="lgettext is deprecated")
     def test_ldnpgettext(self):
         self.assertEqualTypeToo(
             b'VohD1', self.translations.ldngettext('messages1', 'foo1', 'foos1', 1))
@@ -195,7 +203,11 @@ class NullTranslationsTestCase(unittest.TestCase):
         self.null_translations = support.NullTranslations(fp=fp)
 
     def method_names(self):
-        return [name for name in dir(self.translations) if 'gettext' in name]
+        names = [name for name in dir(self.translations) if 'gettext' in name]
+        if SKIP_LGETTEXT:
+            # Remove deprecated l*gettext functions
+            names = [name for name in names if not name.startswith('l')]
+        return names
 
     def test_same_methods(self):
         for name in self.method_names():
@@ -206,9 +218,10 @@ class NullTranslationsTestCase(unittest.TestCase):
         for name in self.method_names():
             translations_method = getattr(self.translations, name)
             null_method = getattr(self.null_translations, name)
-            signature = inspect.getargspec
-            self.assertEqual(signature(translations_method),
-                             signature(null_method))
+            self.assertEqual(
+                get_arg_spec(translations_method),
+                get_arg_spec(null_method),
+            )
 
     def test_same_return_values(self):
         data = {
@@ -219,8 +232,8 @@ class NullTranslationsTestCase(unittest.TestCase):
         for name in self.method_names():
             method = getattr(self.translations, name)
             null_method = getattr(self.null_translations, name)
-            signature = inspect.getargspec(method)
-            parameter_names = [name for name in signature[0] if name != 'self']
+            signature = get_arg_spec(method)
+            parameter_names = [name for name in signature.args if name != 'self']
             values = [data[name] for name in parameter_names]
             self.assertEqual(method(*values), null_method(*values))
 
@@ -275,6 +288,17 @@ class LazyProxyTestCase(unittest.TestCase):
         numbers.pop(0)
         self.assertEqual(2, proxy.value)
         self.assertEqual(1, proxy_deepcopy.value)
+
+    def test_handle_attribute_error(self):
+
+        def raise_attribute_error():
+            raise AttributeError('message')
+
+        proxy = support.LazyProxy(raise_attribute_error)
+        with pytest.raises(AttributeError) as exception:
+            proxy.value
+
+        self.assertEqual('message', str(exception.value))
 
 
 def test_format_date():
@@ -358,4 +382,4 @@ def test_catalog_merge_files():
     t2._catalog["bar"] = "quux"
     t1.merge(t2)
     assert t1.files == ["pro.mo"]
-    assert set(t1._catalog.keys()) == set(('', 'foo', 'bar'))
+    assert set(t1._catalog.keys()) == {'', 'foo', 'bar'}

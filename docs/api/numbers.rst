@@ -30,6 +30,7 @@ Exceptions
 ----------
 
 .. autoexception:: NumberFormatError
+    :members:
 
 Data Access
 -----------
@@ -37,6 +38,8 @@ Data Access
 .. autofunction:: get_currency_name
 
 .. autofunction:: get_currency_symbol
+
+.. autofunction:: get_currency_unit_pattern
 
 .. autofunction:: get_decimal_symbol
 

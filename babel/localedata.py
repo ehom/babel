@@ -8,16 +8,15 @@
     :note: The `Locale` class, which uses this module under the hood, provides a
            more convenient interface for accessing the locale data.
 
-    :copyright: (c) 2013 by the Babel Team.
+    :copyright: (c) 2013-2020 by the Babel Team.
     :license: BSD, see LICENSE for more details.
 """
 
 import os
 import threading
-from collections import MutableMapping
 from itertools import chain
 
-from babel._compat import pickle
+from babel._compat import pickle, string_types, abc
 
 
 _cache = {}
@@ -31,6 +30,8 @@ def normalize_locale(name):
     Returns the normalized locale ID string or `None` if the ID is not
     recognized.
     """
+    if not name or not isinstance(name, string_types):
+        return None
     name = name.strip().lower()
     for locale_id in chain.from_iterable([_cache, locale_identifiers()]):
         if name == locale_id.lower():
@@ -44,6 +45,8 @@ def exists(name):
 
     :param name: the locale identifier string
     """
+    if not name or not isinstance(name, string_types):
+        return False
     if name in _cache:
         return True
     file_found = os.path.exists(os.path.join(_dirname, '%s.dat' % name))
@@ -54,13 +57,24 @@ def locale_identifiers():
     """Return a list of all locale identifiers for which locale data is
     available.
 
+    This data is cached after the first invocation in `locale_identifiers.cache`.
+
+    Removing the `locale_identifiers.cache` attribute or setting it to `None`
+    will cause this function to re-read the list from disk.
+
     .. versionadded:: 0.8.1
 
     :return: a list of locale identifiers (strings)
     """
-    return [stem for stem, extension in [
-        os.path.splitext(filename) for filename in os.listdir(_dirname)
-    ] if extension == '.dat' and stem != 'root']
+    data = getattr(locale_identifiers, 'cache', None)
+    if data is None:
+        locale_identifiers.cache = data = [
+            stem
+            for stem, extension in
+            (os.path.splitext(filename) for filename in os.listdir(_dirname))
+            if extension == '.dat' and stem != 'root'
+        ]
+    return data
 
 
 def load(name, merge_inherited=True):
@@ -183,7 +197,7 @@ class Alias(object):
         return data
 
 
-class LocaleDataDict(MutableMapping):
+class LocaleDataDict(abc.MutableMapping):
     """Dictionary wrapper that automatically resolves aliases to the actual
     values.
     """

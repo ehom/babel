@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright (C) 2007-2011 Edgewall Software
+# Copyright (C) 2007-2011 Edgewall Software, 2013-2020 the Babel team
 # All rights reserved.
 #
-# This software is licensed as described in the file COPYING, which
+# This software is licensed as described in the file LICENSE, which
 # you should have received as part of this distribution. The terms
 # are also available at http://babel.edgewall.org/wiki/License.
 #
@@ -58,7 +58,8 @@ def test_ignore_invalid_locales_in_lc_ctype(os_environ):
 
 
 def test_get_global():
-    assert core.get_global('zone_aliases')['UTC'] == 'Etc/GMT'
+    assert core.get_global('zone_aliases')['GMT'] == 'Etc/GMT'
+    assert core.get_global('zone_aliases')['UTC'] == 'Etc/UTC'
     assert core.get_global('zone_territories')['Europe/Berlin'] == 'DE'
 
 
@@ -316,3 +317,13 @@ def test_compatible_classes_in_global_and_localedata(filename):
 
     with open(filename, 'rb') as f:
         return Unpickler(f).load()
+
+
+def test_issue_601_no_language_name_but_has_variant():
+    # kw_GB has a variant for Finnish but no actual language name for Finnish,
+    # so `get_display_name()` previously crashed with a TypeError as it attempted
+    # to concatenate " (Finnish)" to None.
+    # Instead, it's better to return None altogether, as we can't reliably format
+    # part of a language name.
+
+    assert Locale.parse('fi_FI').get_display_name('kw_GB') == None

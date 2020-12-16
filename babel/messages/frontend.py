@@ -5,7 +5,7 @@
 
     Frontends for the message extraction functionality.
 
-    :copyright: (c) 2013 by the Babel Team.
+    :copyright: (c) 2013-2020 by the Babel Team.
     :license: BSD, see LICENSE for more details.
 """
 from __future__ import print_function
@@ -17,18 +17,19 @@ import re
 import shutil
 import sys
 import tempfile
+from collections import OrderedDict
 from datetime import datetime
 from locale import getpreferredencoding
 
 from babel import __version__ as VERSION
 from babel import Locale, localedata
-from babel._compat import StringIO, string_types, text_type
+from babel._compat import StringIO, string_types, text_type, PY2
 from babel.core import UnknownLocaleError
 from babel.messages.catalog import Catalog
 from babel.messages.extract import DEFAULT_KEYWORDS, DEFAULT_MAPPING, check_and_call_extract_file, extract_from_dir
 from babel.messages.mofile import write_mo
 from babel.messages.pofile import read_po, write_po
-from babel.util import LOCALTZ, odict
+from babel.util import LOCALTZ
 from distutils import log as distutils_log
 from distutils.cmd import Command as _Command
 from distutils.errors import DistutilsOptionError, DistutilsSetupError
@@ -37,6 +38,9 @@ try:
     from ConfigParser import RawConfigParser
 except ImportError:
     from configparser import RawConfigParser
+
+
+po_file_read_mode = ('rU' if PY2 else 'r')
 
 
 def listify_value(arg, split=None):
@@ -178,8 +182,13 @@ class compile_catalog(Command):
                                        'or the base directory')
 
     def run(self):
+        n_errors = 0
         for domain in self.domain:
-            self._run_domain(domain)
+            for catalog, errors in self._run_domain(domain).items():
+                n_errors += len(errors)
+        if n_errors:
+            self.log.error('%d errors encountered.' % n_errors)
+        return (1 if n_errors else 0)
 
     def _run_domain(self, domain):
         po_files = []
@@ -215,6 +224,8 @@ class compile_catalog(Command):
         if not po_files:
             raise DistutilsOptionError('no message catalogs found')
 
+        catalogs_and_errors = {}
+
         for idx, (locale, po_file) in enumerate(po_files):
             mo_file = mo_files[idx]
             with open(po_file, 'rb') as infile:
@@ -237,7 +248,8 @@ class compile_catalog(Command):
                 self.log.info('catalog %s is marked as fuzzy, skipping', po_file)
                 continue
 
-            for message, errors in catalog.check():
+            catalogs_and_errors[catalog] = catalog_errors = list(catalog.check())
+            for message, errors in catalog_errors:
                 for error in errors:
                     self.log.error(
                         'error: %s:%d: %s', po_file, message.lineno, error
@@ -247,6 +259,8 @@ class compile_catalog(Command):
 
             with open(mo_file, 'wb') as outfile:
                 write_mo(outfile, catalog, use_fuzzy=self.use_fuzzy)
+
+        return catalogs_and_errors
 
 
 class extract_messages(Command):
@@ -391,7 +405,7 @@ class extract_messages(Command):
 
         if self.input_paths:
             if isinstance(self.input_paths, string_types):
-                self.input_paths = re.split(',\s*', self.input_paths)
+                self.input_paths = re.split(r',\s*', self.input_paths)
         elif self.distribution is not None:
             self.input_paths = dict.fromkeys([
                 k.split('.', 1)[0]
@@ -485,7 +499,7 @@ class extract_messages(Command):
         mappings = []
 
         if self.mapping_file:
-            with open(self.mapping_file, 'U') as fileobj:
+            with open(self.mapping_file, po_file_read_mode) as fileobj:
                 method_map, options_map = parse_mapping(fileobj)
             for path in self.input_paths:
                 mappings.append((path, method_map, options_map))
@@ -643,6 +657,8 @@ class update_catalog(Command):
         ('output-file=', 'o',
          "name of the output file (default "
          "'<output_dir>/<locale>/LC_MESSAGES/<domain>.po')"),
+        ('omit-header', None,
+         "do not include msgid "" entry in header"),
         ('locale=', 'l',
          'locale of the catalog to compile'),
         ('width=', 'w',
@@ -657,15 +673,19 @@ class update_catalog(Command):
         ('update-header-comment', None,
          'update target header comment'),
         ('previous', None,
-         'keep previous msgids of translated messages')
+         'keep previous msgids of translated messages'),
     ]
-    boolean_options = ['no-wrap', 'ignore-obsolete', 'no-fuzzy-matching', 'previous', 'update-header-comment']
+    boolean_options = [
+        'omit-header', 'no-wrap', 'ignore-obsolete', 'no-fuzzy-matching',
+        'previous', 'update-header-comment',
+    ]
 
     def initialize_options(self):
         self.domain = 'messages'
         self.input_file = None
         self.output_dir = None
         self.output_file = None
+        self.omit_header = False
         self.locale = None
         self.width = None
         self.no_wrap = False
@@ -736,6 +756,7 @@ class update_catalog(Command):
             try:
                 with open(tmpname, 'wb') as tmpfile:
                     write_po(tmpfile, catalog,
+                             omit_header=self.omit_header,
                              ignore_obsolete=self.ignore_obsolete,
                              include_previous=self.previous, width=self.width)
             except:
@@ -962,8 +983,13 @@ def parse_mapping(fileobj, filename=None):
     options_map = {}
 
     parser = RawConfigParser()
-    parser._sections = odict(parser._sections)  # We need ordered sections
-    parser.readfp(fileobj, filename)
+    parser._sections = OrderedDict(parser._sections)  # We need ordered sections
+
+    if PY2:
+        parser.readfp(fileobj, filename)
+    else:
+        parser.read_file(fileobj, filename)
+
     for section in parser.sections():
         if section == 'extractors':
             extractors = dict(parser.items(section))
@@ -978,7 +1004,7 @@ def parse_mapping(fileobj, filename=None):
                 method = extractors[method]
             method_map[idx] = (pattern, method)
 
-    return (method_map, options_map)
+    return method_map, options_map
 
 
 def parse_keywords(strings=[]):
